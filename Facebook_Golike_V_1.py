@@ -184,14 +184,18 @@ def start_job_loop(token, acc):
         
         empty_job_count = 0
         
-        # Duyệt tuần tự mảng danh sách công việc
+                # Duyệt tuần tự mảng danh sách công việc
         for job in job_list:
             if is_job_error(job.get("id")):
                 print(f"{YELLOW}[!] Job {job.get('id')} thuộc danh sách đen, đang bỏ qua...{RESET}")
                 continue
             
-            job_type = job.get('type', 'JOB').upper()
-            reaction = job.get('reaction', 'LIKE').upper()
+            job_type = str(job.get('type') or 'JOB').upper()
+            reaction = str(job.get('reaction') or 'LIKE').upper()
+            
+            print(f"\n{GREEN}[!] CÓ JOB MỚI: {job_type} ({reaction}){RESET}")
+
+
             
             print(f"\n{GREEN}[!] CÓ JOB MỚI: {job_type} ({reaction}){RESET}")
             print(f"{YELLOW} -> Link: {job.get('link')}{RESET}")
