@@ -15,11 +15,11 @@ MAP_FILE = "mapping.json"
 ERROR_FILE = "error_jobs.txt"
 
 # User-Agent đồng bộ hệ thống di động Android sạch
-USER_AGENT = "Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+USER_AGENT = "Mozilla/5.0 (iPad; CPU OS 18_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.4 Mobile/15E148 Safari/604.1"
 
 # Khóa thiết bị cứng lấy từ phiên đăng nhập cố định của bạn
 G_DEVICE_ID = "9f7b42b3-d67b-4b2e-b9f8-869398af4406"
-G_AUTH = "F21PUB2Oq2EXgFWFtSDlwkB_2FW9n64MFLfqOm45CJwm-ezOO4ApLCq5xJRz-MVHtoNNuG54EVR5nHbLsAmAd6Fmb3T6xB_8FG4MVMrUFrLuKX4GE4XdCcAgpWo_yPP88iwVeEqzQqlTvVFWSVI_QmEhOjXMgP9Qz19Da5XbV7k2Vz7JpJbhDHaAwhncftw23CuT8eWKnS1Z6VfFHmaT8vUL_QkMSV1zk-aZqekzlrBcTexWFzlYP8Z4fSUQz-7nYrImthHEkQ-zD6sAkqxC4A9tSzC3x_K06znohX2IQkl72svj9b-xlP3HZhtxsRzjbQ5J2zrxbFS5NyhJKDkpvRpu18Hph5wT6iCVtnRdqByef7dfmPWyUuv7IA"
+G_AUTH = "Pk57G4Q9LupnhDuVtTTfF3oAg6qbXMc2keje2uG4GCVMsc0YcMKMeE2el8tousb_yrDZ5lhKz6FgZn3eD3k-8NoZGpwlRjT9QOmRySCKRv5aE9Uipl-Ghoeb84xcG-6eAAR7JCF45RLLWfG7gk0q4ydMYjjAxOozses99nkrRRykGhdeO2ZLejvqlcXUdUSOpkcIkxf0itdm8b9ihZvixCkKR5KwM-rfsZ0DhWZ0HTYK9CyMt8CAlLkDXO_wafxlYQ-5qw1matV0wt3Ot40Ni-LR0QINt497f0CY9lijPv8efXLg6RSByS25B-ZACXc2SnGjbuYR8j5-E45E_wo2rvWZOLCSDHZcNCblRJlXDgfWCWgM"
 
 # --- HÀM TẠO THAM SỐ `t` ĐỘNG THEO THỜI GIAN THỰC ---
 def generate_t_param():
