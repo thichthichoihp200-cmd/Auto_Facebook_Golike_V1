@@ -4,6 +4,7 @@ import time
 import subprocess
 import re
 import json
+import base64
 from datetime import datetime
 import pytz
 
@@ -11,8 +12,42 @@ import pytz
 RED, GREEN, YELLOW, BLUE, MAGENTA, CYAN, RESET = '\033[91m', '\033[92m', '\033[93m', '\033[94m', '\033[95m', '\033[96m', '\033[0m'
 CONFIG_FILE = "config.txt"
 MAP_FILE = "mapping.json"
-ERROR_FILE = "error_jobs.txt" # [BỔ SUNG]
-USER_AGENT = "Mozilla/5.0 (iPad; CPU OS 17_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Mobile/15E148 Safari/604.1"
+ERROR_FILE = "error_jobs.txt"
+
+# User-Agent đồng bộ hệ thống di động Android sạch
+USER_AGENT = "Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+
+# Khóa thiết bị cứng lấy từ phiên đăng nhập cố định của bạn
+G_DEVICE_ID = "9f7b42b3-d67b-4b2e-b9f8-869398af4406"
+G_AUTH = "F21PUB2Oq2EXgFWFtSDlwkB_2FW9n64MFLfqOm45CJwm-ezOO4ApLCq5xJRz-MVHtoNNuG54EVR5nHbLsAmAd6Fmb3T6xB_8FG4MVMrUFrLuKX4GE4XdCcAgpWo_yPP88iwVeEqzQqlTvVFWSVI_QmEhOjXMgP9Qz19Da5XbV7k2Vz7JpJbhDHaAwhncftw23CuT8eWKnS1Z6VfFHmaT8vUL_QkMSV1zk-aZqekzlrBcTexWFzlYP8Z4fSUQz-7nYrImthHEkQ-zD6sAkqxC4A9tSzC3x_K06znohX2IQkl72svj9b-xlP3HZhtxsRzjbQ5J2zrxbFS5NyhJKDkpvRpu18Hph5wT6iCVtnRdqByef7dfmPWyUuv7IA"
+
+# --- HÀM TẠO THAM SỐ `t` ĐỘNG THEO THỜI GIAN THỰC ---
+def generate_t_param():
+    """
+    Tự động lấy timestamp hiện tại (mili giây), mã hóa Base64 hai lần
+    để khớp hoàn toàn với cơ chế sinh chữ ký động của hệ thống Golike 2026.
+    """
+    millis = str(int(time.time() * 1000))
+    # Mã hóa lần 1
+    b1 = base64.b64encode(millis.encode('utf-8')).decode('utf-8')
+    # Mã hóa lần 2
+    b2 = base64.b64encode(b1.encode('utf-8')).decode('utf-8')
+    return b2
+
+# --- HÀM TẠO HEADERS ĐỒNG BỘ ---
+def get_base_headers(token, dynamic_t):
+    token_clean = token.replace("Bearer ", "").strip()
+    return {
+        "Authorization": f"Bearer {token_clean}",
+        "User-Agent": USER_AGENT,
+        "Accept": "application/json, text/plain, */*",
+        "Content-Type": "application/json;charset=utf-8",
+        "t": dynamic_t,
+        "g-device-id": G_DEVICE_ID,
+        "g-auth": G_AUTH,
+        "Origin": "https://app.golike.net",
+        "Referer": "https://app.golike.net/"
+    }
 
 # --- HÀM MAPPING & JOB LỖI ---
 def load_map():
@@ -40,7 +75,7 @@ def is_job_error(job_id):
     with open(ERROR_FILE, "r") as f:
         return str(job_id) in f.read().splitlines()
 
-# --- CÁC HÀM CŨ ---
+# --- CÁC HÀM TIỆN ÍCH ---
 def get_vn_time():
     vn_tz = pytz.timezone('Asia/Ho_Chi_Minh')
     return datetime.now(vn_tz).strftime('%d/%m/%Y %H:%M:%S')
@@ -72,43 +107,60 @@ def extract_id_from_link(link):
     return match.group(1) if match else link.strip()
 
 def get_accounts(token):
-    token_clean = token.replace("Bearer ", "").strip()
+    dynamic_t = generate_t_param()
     url = "https://gateway.golike.net/api/fb-account?limit=200"
-    headers = {"Authorization": f"Bearer {token_clean}", "User-Agent": USER_AGENT}
+    headers = get_base_headers(token, dynamic_t)
     try:
         res = requests.get(url, headers=headers, timeout=10)
         data = res.json().get("data", [])
         return data.get("data", []) if isinstance(data, dict) else data
     except: return []
 
+# --- GIAO TIẾP API LẤY JOB VỚI CHỮ KÝ ĐỘNG ---
+
 def fetch_job(token, acc_id):
-    token_clean = token.replace("Bearer ", "").strip()
+    """Lấy danh sách job bằng việc sinh mã t mới liên tục chống lệch giờ trên Gateway"""
+    dynamic_t = generate_t_param()
     url = "https://gateway.golike.net/api/advertising/publishers/get-jobs-2026"
-    params = {"fb_id": acc_id, "server": "sv2", "low_job": "1"}
-    headers = {"Authorization": f"Bearer {token_clean}", "User-Agent": USER_AGENT}
+    
+    params = {
+        "fb_id": acc_id, 
+        "server": "sv2", 
+        "low_job": "1"
+    }
+    
+    headers = get_base_headers(token, dynamic_t)
     try:
         res = requests.get(url, headers=headers, params=params, timeout=10)
-        jobs = res.json().get("data", [])
-        return jobs[0] if jobs else None
-    except: return None
+        res_json = res.json()
+        
+        if not res_json.get("success"):
+            # In ra thông báo hệ thống nếu bị từ chối nhận job
+            print(f"\n{RED}[X] Golike Từ Chối Trả Job! Chi tiết: {res_json.get('message', 'Không rõ nguyên do')}{RESET}")
+            
+        return res_json.get("data", [])
+    except Exception as e: 
+        return []
 
 def report_job(token, acc_id, job_id):
-    token_clean = token.replace("Bearer ", "").strip()
+    dynamic_t = generate_t_param()
     url = "https://gateway.golike.net/api/advertising/publishers/complete-jobs-2026"
-    headers = {"Authorization": f"Bearer {token_clean}", "Content-Type": "application/json"}
+    
+    headers = get_base_headers(token, dynamic_t)
     payload = {"uid": acc_id, "job_id": job_id}
     try: return requests.post(url, headers=headers, json=payload, timeout=10).json()
     except: return None
 
 def skip_job(token, acc_id, ads_id):
-    token_clean = token.replace("Bearer ", "").strip()
+    dynamic_t = generate_t_param()
     url = "https://gateway.golike.net/api/report/send"
-    headers = {"Authorization": f"Bearer {token_clean}", "Content-Type": "application/json"}
+    
+    headers = get_base_headers(token, dynamic_t)
     payload = {"description": "Lỗi hệ thống", "users_advertising_id": ads_id, "type": "ads", "fb_id": acc_id, "error_type": 0, "provider": "facebook", "comment": None}
     try: return requests.post(url, headers=headers, json=payload, timeout=10).json()
     except: return None
 
-# --- VÒNG LẶP CÀY JOB ---
+# --- VÒNG LẶP CÀY JOB THẾ HỆ MỚI ---
 def start_job_loop(token, acc):
     acc_id = str(acc.get("fb_id"))
     pkg = get_browser_for_acc(acc_id)
@@ -117,69 +169,72 @@ def start_job_loop(token, acc):
     
     empty_job_count = 0
     while True:
-        job = fetch_job(token, acc_id)
-        if not job:
+        job_list = fetch_job(token, acc_id)
+        
+        # Nếu danh sách rỗng (hết job hoặc đang lỗi phân phối)
+        if not job_list or len(job_list) == 0:
             empty_job_count += 1
             for i in range(15, 0, -1):
                 print(f"{CYAN}[🔎] Không có job, thử lại sau {i}s ({empty_job_count}/3){RESET}", end='\r')
                 time.sleep(1)
             if empty_job_count >= 3:
-                print(f"\n{RED}[!] Hết job, quay về menu chính...{RESET}")
+                print(f"\n{RED}[!] Không lấy được job, quay về menu chính...{RESET}")
                 return 
             continue
         
-        # [SỬA LỖI] Kiểm tra Job lỗi
-        if is_job_error(job.get("id")):
-            # Nếu gặp job lỗi, chỉ in 1 lần và đợi 5s để server làm mới danh sách job, tránh spam
-            print(f"{YELLOW}[!] Job {job.get('id')} thuộc danh sách đen, đang bỏ qua...{RESET}")
-            time.sleep(5) 
-            continue
-        
         empty_job_count = 0
-        print(f"\n{GREEN}[!] CÓ JOB MỚI: {job.get('type', 'JOB').upper()}{RESET}")
-        print(f"{YELLOW} -> Link: {job.get('link')}{RESET}")
         
-        print(f"{CYAN}[⏳] Đang đợi 2 giây để load trình duyệt...{RESET}")
-        time.sleep(2) 
-        
-        subprocess.run(['am', 'start', '-n', f'{pkg}/mark.via.Shell', '-a', 'android.intent.action.VIEW', '-d', job.get('link')], 
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        
-        cmd = input(f"{MAGENTA}[?] Làm xong [ENTER] | [x] Báo lỗi & Lưu vĩnh viễn: {RESET}").strip().lower()
-        
-        if cmd == 'x':
-            print(f"{RED}[!] Đang lưu Job lỗi và thông báo hệ thống...{RESET}")
-            save_skip_job(job.get("id"))
-            skip_job(token, acc_id, job.get("users_advertising_id"))
-            time.sleep(2) # Nghỉ chút để tránh spam API
-        else:
-            res = report_job(token, acc_id, job.get("id"))
-            if res and res.get("success"):
-                print(f"{GREEN}[+] {res.get('message')}{RESET}")
+        # Duyệt tuần tự mảng danh sách công việc
+        for job in job_list:
+            if is_job_error(job.get("id")):
+                print(f"{YELLOW}[!] Job {job.get('id')} thuộc danh sách đen, đang bỏ qua...{RESET}")
+                continue
+            
+            job_type = job.get('type', 'JOB').upper()
+            reaction = job.get('reaction', 'LIKE').upper()
+            
+            print(f"\n{GREEN}[!] CÓ JOB MỚI: {job_type} ({reaction}){RESET}")
+            print(f"{YELLOW} -> Link: {job.get('link')}{RESET}")
+            
+            print(f"{CYAN}[⏳] Đang đợi 2 giây để load trình duyệt...{RESET}")
+            time.sleep(2) 
+            
+            subprocess.run(['am', 'start', '-n', f'{pkg}/mark.via.Shell', '-a', 'android.intent.action.VIEW', '-d', job.get('link')], 
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            
+            cmd = input(f"{MAGENTA}[?] Đã tương tác `{reaction}` xong [ENTER] | [x] Báo lỗi: {RESET}").strip().lower()
+            
+            if cmd == 'x':
+                print(f"{RED}[!] Đang lưu Job lỗi và thông báo hệ thống...{RESET}")
+                save_skip_job(job.get("id"))
+                ads_id = job.get("users_advertising_id") or job.get("id")
+                skip_job(token, acc_id, ads_id)
+                time.sleep(2) 
             else:
-                print(f"{RED}[!] Báo cáo thất bại!{RESET}")
-        time.sleep(2)
+                res = report_job(token, acc_id, job.get("id"))
+                if res and res.get("success"):
+                    print(f"{GREEN}[+] {res.get('message')}{RESET}")
+                else:
+                    print(f"{RED}[!] Báo cáo thất bại!{RESET}")
+            
+            time.sleep(3)
 
 def main():
-    saved_token = load_config()
-    token = None
+    # Sử dụng Token Bearer mới bạn trích xuất từ dữ liệu Header của bạn
+    static_token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwOlwvXC9nYXRld2F5LmdvbGlrZS5uZXRcL2FwaVwvbG9naW4iLCJpYXQiOjE3ODA0NTU4MzUsImV4cCI6MTgxMTk5MTgzNSwibmJmIjoxNzgwNDU1ODM1LCJqdGkiOiIxOFNXQjBucjludE1DN3ltIiwic3ViIjoyNTIzMjcyLCJwcnYiOiJiOTEyNzk5NzhmMTFhYTdiYzU2NzA0ODdmZmYwMWUyMjgyNTNmZTQ4In0.obnwhjp-y2EjYfzPi9Os42HsUtuQLkiE41j8pWIZ4qo"
+    save_config(static_token)
+    token = static_token
     print_banner()
     
-    if saved_token:
-        print(f"{GREEN}[1] Dùng Token đã lưu{RESET}")
-        print(f"{YELLOW}[2] Nhập Token mới{RESET}")
-        choice = input(f"{CYAN}[?] Lựa chọn (1/2): {RESET}").strip()
-        if choice == '1': token = saved_token
-        else:
-            token = input(f"{YELLOW}[+] Nhập Token mới: {RESET}").strip()
-            save_config(token)
-    else:
-        token = input(f"{YELLOW}[+] Chưa có token, hãy nhập Token: {RESET}").strip()
-        save_config(token)
+    print(f"{GREEN}[+] Đã đồng bộ Token xác thực và mã hóa thời gian thực 2026!{RESET}")
+    time.sleep(1)
 
     while True:
         accounts = get_accounts(token)
-        if not accounts: break
+        if not accounts: 
+            print(f"{RED}[!] Không lấy được cấu trúc tài khoản. Token hoặc cụm khóa g-auth hết hạn!{RESET}")
+            break
+            
         print(f"\n{CYAN}{'STT':<5} | {'NAME':<15} | {'UID':<18} | {'STATUS'}{RESET}")
         print("-" * 65)
         live_list = []
@@ -190,12 +245,12 @@ def main():
             print(f"{i:<5} | {str(name)[:15]:<15} | {str(acc.get('fb_id')):<18} | {status}")
             if is_live: live_list.append({"stt": i, "data": acc})
                 
-        choice = input(f"\n{YELLOW}[?] Nhập STT, UID hoặc Link profile: {RESET}").strip()
+        choice = input(f"\n{YELLOW}[?] Nhập STT, UID hoặc Link profile để chạy: {RESET}").strip()
         if not choice: break
         target = extract_id_from_link(choice)
         selected_acc = next((a["data"] for a in live_list if str(a["stt"]) == target or str(a["data"].get('fb_id')) == target), None)
         if selected_acc: start_job_loop(token, selected_acc)
-        else: print(f"{RED}[!] Không tìm thấy tài khoản!{RESET}"); time.sleep(1)
+        else: print(f"{RED}[!] Không tìm thấy tài khoản hợp lệ!{RESET}"); time.sleep(1)
 
 if __name__ == "__main__":
     main()
